@@ -6,7 +6,6 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 import pickle
-import os
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -19,32 +18,39 @@ BATCH_SIZE = 64
 LSTM_UNITS = 128
 DROPOUT_RATE = 0.2
 MODEL_SAVE_PATH = "workload_lstm_model.keras"
-SCALER_SAVE_PATH = "scaler.pkl"
+INPUT_SCALER_PATH = "input_scaler.pkl"
+TARGET_SCALER_PATH = "target_scaler.pkl"
+
+INPUT_FEATURES = ['avg_cpu', 'avg_memory', 'max_cpu', 'assigned_memory', 'cpi']
+TARGET_FEATURES = ['avg_cpu', 'avg_memory']
+NUM_INPUTS = len(INPUT_FEATURES)
+NUM_OUTPUTS = len(TARGET_FEATURES)
 
 # ---------------------------------------------------------------------------
-# Preprocessing (self-contained for Kaggle execution)
+# Preprocessing (self-contained for Kaggle/Colab execution)
 # ---------------------------------------------------------------------------
-def create_sequences(data, look_back):
-    """Transform univariate time-series into (N, T, F) tensors."""
+def create_sequences(data, target_data, look_back):
+    """Transform multivariate time-series into (N, T, F) tensors."""
     X, y = [], []
     for i in range(len(data) - look_back):
-        X.append(data[i : i + look_back, 0])
-        y.append(data[i + look_back, 0])
-    X_arr, y_arr = np.array(X), np.array(y)
-    return X_arr.reshape(X_arr.shape[0], X_arr.shape[1], 1), y_arr
+        X.append(data[i : i + look_back])
+        y.append(target_data[i + look_back])
+    return np.array(X), np.array(y)
 
 def prepare_data(csv_path, look_back, train_split):
-    """Load, scale, vectorize, and partition the dataset."""
+    """Load, scale, vectorize, and partition the multivariate dataset."""
     df = pd.read_csv(csv_path)
-    cpu_data = df['cpu_usage'].values.reshape(-1, 1)
 
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    cpu_scaled = scaler.fit_transform(cpu_data)
+    input_scaler = MinMaxScaler(feature_range=(0, 1))
+    target_scaler = MinMaxScaler(feature_range=(0, 1))
 
-    X, y = create_sequences(cpu_scaled, look_back)
+    input_scaled = input_scaler.fit_transform(df[INPUT_FEATURES].values)
+    target_scaled = target_scaler.fit_transform(df[TARGET_FEATURES].values)
+
+    X, y = create_sequences(input_scaled, target_scaled, look_back)
 
     split_idx = int(len(X) * train_split)
-    return (X[:split_idx], y[:split_idx]), (X[split_idx:], y[split_idx:]), scaler
+    return (X[:split_idx], y[:split_idx]), (X[split_idx:], y[split_idx:]), input_scaler, target_scaler
 
 # ---------------------------------------------------------------------------
 # GPU Detection
@@ -57,13 +63,17 @@ for gpu in gpus:
 # ---------------------------------------------------------------------------
 # Data Preparation
 # ---------------------------------------------------------------------------
-(X_train, y_train), (X_test, y_test), scaler = prepare_data(CSV_PATH, LOOK_BACK, TRAIN_SPLIT)
-print(f"Training tensor: {X_train.shape}")
-print(f"Testing tensor:  {X_test.shape}")
+(X_train, y_train), (X_test, y_test), input_scaler, target_scaler = prepare_data(CSV_PATH, LOOK_BACK, TRAIN_SPLIT)
+print(f"Training input:  {X_train.shape}  -> (samples, time_steps, {NUM_INPUTS} features)")
+print(f"Training target: {y_train.shape}  -> (samples, {NUM_OUTPUTS} outputs)")
+print(f"Testing input:   {X_test.shape}")
+print(f"Testing target:  {y_test.shape}")
 
-# Persist the scaler for inverse transform during inference
-with open(SCALER_SAVE_PATH, 'wb') as f:
-    pickle.dump(scaler, f)
+# Persist both scalers for inference
+with open(INPUT_SCALER_PATH, 'wb') as f:
+    pickle.dump(input_scaler, f)
+with open(TARGET_SCALER_PATH, 'wb') as f:
+    pickle.dump(target_scaler, f)
 
 # ---------------------------------------------------------------------------
 # Model Construction under MirroredStrategy
@@ -73,12 +83,12 @@ print(f"Replicas in sync: {strategy.num_replicas_in_sync}")
 
 with strategy.scope():
     model = Sequential([
-        Input(shape=(LOOK_BACK, 1)),
+        Input(shape=(LOOK_BACK, NUM_INPUTS)),
         LSTM(LSTM_UNITS, return_sequences=True),
         Dropout(DROPOUT_RATE),
         LSTM(LSTM_UNITS // 2),
         Dropout(DROPOUT_RATE),
-        Dense(1)
+        Dense(NUM_OUTPUTS)
     ])
     model.compile(optimizer='adam', loss='mean_squared_error')
 
@@ -120,4 +130,5 @@ history = model.fit(
 test_loss = model.evaluate(X_test, y_test, verbose=0)
 print(f"Test MSE: {test_loss:.6f}")
 print(f"Model saved to: {MODEL_SAVE_PATH}")
-print(f"Scaler saved to: {SCALER_SAVE_PATH}")
+print(f"Input scaler saved to: {INPUT_SCALER_PATH}")
+print(f"Target scaler saved to: {TARGET_SCALER_PATH}")

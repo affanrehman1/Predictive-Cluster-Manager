@@ -9,31 +9,38 @@ import pickle
 # ---------------------------------------------------------------------------
 CSV_PATH = "clean_workload_data.csv"
 MODEL_PATH = "workload_lstm_model.keras"
-SCALER_PATH = "scaler.pkl"
-LOOK_BACK = 50  # Matches Phase 2 training
+INPUT_SCALER_PATH = "input_scaler.pkl"
+TARGET_SCALER_PATH = "target_scaler.pkl"
+LOOK_BACK = 50
+
+INPUT_FEATURES = ['avg_cpu', 'avg_memory', 'max_cpu', 'assigned_memory', 'cpi']
+TARGET_FEATURES = ['avg_cpu', 'avg_memory']
 
 # ---------------------------------------------------------------------------
 # Data & Model Loading
 # ---------------------------------------------------------------------------
 df = pd.read_csv(CSV_PATH)
-cpu_data = df['cpu_usage'].values.reshape(-1, 1)
 
-with open(SCALER_PATH, 'rb') as f:
-    scaler = pickle.load(f)
+with open(INPUT_SCALER_PATH, 'rb') as f:
+    input_scaler = pickle.load(f)
+with open(TARGET_SCALER_PATH, 'rb') as f:
+    target_scaler = pickle.load(f)
 
-cpu_scaled = scaler.transform(cpu_data)
+input_scaled = input_scaler.transform(df[INPUT_FEATURES].values)
+target_scaled = target_scaler.transform(df[TARGET_FEATURES].values)
 
 # Extract only the TEST segment (last 20%)
-split_idx = int(len(cpu_scaled) * 0.8)
-test_data = cpu_scaled[split_idx:]
+split_idx = int(len(input_scaled) * 0.8)
+test_input = input_scaled[split_idx:]
+test_target = target_scaled[split_idx:]
 
 X_test, y_test = [], []
-for i in range(len(test_data) - LOOK_BACK):
-    X_test.append(test_data[i : i + LOOK_BACK, 0])
-    y_test.append(test_data[i + LOOK_BACK, 0])
+for i in range(len(test_input) - LOOK_BACK):
+    X_test.append(test_input[i : i + LOOK_BACK])
+    y_test.append(test_target[i + LOOK_BACK])
 
-X_test = np.array(X_test).reshape(-1, LOOK_BACK, 1)
-y_actual = np.array(y_test).reshape(-1, 1)
+X_test = np.array(X_test)
+y_actual = np.array(y_test)
 
 # Load the model
 print("Loading model and performing inference...")
@@ -44,25 +51,38 @@ model = tf.keras.models.load_model(MODEL_PATH)
 # ---------------------------------------------------------------------------
 y_pred_scaled = model.predict(X_test)
 
-# Inverse Transform to get real CPU values
-y_pred = scaler.inverse_transform(y_pred_scaled)
-y_actual_real = scaler.inverse_transform(y_actual)
+# Inverse Transform to get real values
+y_pred = target_scaler.inverse_transform(y_pred_scaled)
+y_actual_real = target_scaler.inverse_transform(y_actual)
 
 # ---------------------------------------------------------------------------
-# Visualization
+# Visualization (Dual Output)
 # ---------------------------------------------------------------------------
-plt.figure(figsize=(15, 6))
-# We plot a slice of 500 points to see details
-plt.plot(y_actual_real[:500], label='Actual CPU Usage', color='blue', alpha=0.7)
-plt.plot(y_pred[:500], label='Predicted CPU Usage', color='red', linestyle='--', alpha=0.9)
-plt.title('Phase 2 Forecast: Actual vs Predicted (High-Capacity Model)')
-plt.xlabel('Time Steps')
-plt.ylabel('CPU Usage')
-plt.legend()
-plt.grid(True, alpha=0.3)
+fig, axes = plt.subplots(2, 1, figsize=(15, 10), sharex=True)
+
+# Plot 1: CPU Usage
+axes[0].plot(y_actual_real[:500, 0], label='Actual CPU', color='blue', alpha=0.7)
+axes[0].plot(y_pred[:500, 0], label='Predicted CPU', color='red', linestyle='--', alpha=0.9)
+axes[0].set_title('Multivariate Forecast: Average CPU Usage')
+axes[0].set_ylabel('CPU Usage')
+axes[0].legend()
+axes[0].grid(True, alpha=0.3)
+
+# Plot 2: Memory Usage
+axes[1].plot(y_actual_real[:500, 1], label='Actual Memory', color='green', alpha=0.7)
+axes[1].plot(y_pred[:500, 1], label='Predicted Memory', color='orange', linestyle='--', alpha=0.9)
+axes[1].set_title('Multivariate Forecast: Average Memory Usage')
+axes[1].set_xlabel('Time Steps')
+axes[1].set_ylabel('Memory Usage')
+axes[1].legend()
+axes[1].grid(True, alpha=0.3)
+
+plt.tight_layout()
 plt.show()
 
 # Print metrics
-mae = np.mean(np.abs(y_actual_real - y_pred))
-print(f"\nInference Metrics (Phase 2):")
-print(f"Mean Absolute Error: {mae:.6f} CPU Units")
+cpu_mae = np.mean(np.abs(y_actual_real[:, 0] - y_pred[:, 0]))
+mem_mae = np.mean(np.abs(y_actual_real[:, 1] - y_pred[:, 1]))
+print(f"\nInference Metrics (Multivariate):")
+print(f"CPU Mean Absolute Error:    {cpu_mae:.6f}")
+print(f"Memory Mean Absolute Error: {mem_mae:.6f}")
