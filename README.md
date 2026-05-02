@@ -1,7 +1,7 @@
-# Workload Forecasting with LSTM
+# Predictive Cluster Manager
 
 ## Project Overview
-This repository implements a high-performance preprocessing pipeline for workload forecasting using the Google Cluster Trace dataset (v3). The system is designed to transform raw cluster telemetry into 3D temporal tensors optimized for Long Short-Term Memory (LSTM) network training.
+This repository implements a deep learning pipeline for workload forecasting using the Google Cluster Trace dataset (v3). The system transforms raw cluster telemetry into 3D temporal tensors and trains an LSTM network to predict future CPU utilization. Training is designed for multi-GPU execution on Kaggle's Dual T4 environment using TensorFlow's MirroredStrategy.
 
 ## Dataset
 This project utilizes the Google Cluster-Usage Traces v3 (2019), which tracks resource utilization across approximately 12,000 machines.
@@ -14,27 +14,40 @@ This project utilizes the Google Cluster-Usage Traces v3 (2019), which tracks re
 *   NumPy
 *   Pandas
 *   Scikit-learn
-*   TensorFlow 2.x (Planned for model implementation)
+*   TensorFlow 2.x
 
 ## Pipeline Architecture
 
 ### 1. Data Ingestion (`data_preprocessing.py`)
-Parses compressed GZIP JSON traces. It performs initial cleaning, extracts core telemetry (CPU/Memory), and exports a chronologically sorted CSV.
+Parses compressed GZIP JSON traces via stream processing. Extracts CPU and memory telemetry and exports a chronologically sorted CSV.
 
 ### 2. Feature Engineering (`lstm_preprocessing.py`)
-Processes the cleaned telemetry into a format suitable for recurrent architectures:
-*   **Min-Max Normalization**: Scales CPU usage to [0, 1] to ensure numerical stability and prevent activation saturation.
-*   **Vectorization**: Implements a sliding-window algorithm to generate temporal sequences of shape `(N, T, F)`.
-*   **Chronological Partitioning**: Splits data into 80% training and 20% testing sets while preserving the temporal sequence to prevent data leakage.
+Applies Min-Max normalization, generates sliding-window temporal sequences of shape `(N, T, F)`, and performs chronological train-test partitioning.
+
+### 3. Model Training (`train_model.py`)
+Builds and trains a stacked LSTM architecture under `tf.distribute.MirroredStrategy` for multi-GPU acceleration. Includes EarlyStopping and ModelCheckpoint callbacks. Exports the trained model as `.keras` and the fitted scaler as `.pkl`.
+
+## Model Architecture
+```
+Input(10, 1) -> LSTM(64) -> Dropout(0.2) -> LSTM(32) -> Dropout(0.2) -> Dense(1)
+```
+*   **Optimizer:** Adam (adaptive learning rate)
+*   **Loss:** Mean Squared Error
+*   **Regularization:** Dropout (20%) + EarlyStopping (patience=5)
+
+## Execution
+
+### Local Preprocessing
+```bash
+python data_preprocessing.py
+python lstm_preprocessing.py
+```
+
+### Kaggle Training
+1.  Create a Kaggle Notebook with **GPU T4 x2** accelerator.
+2.  Upload `clean_workload_data.csv` as a dataset.
+3.  Paste and execute the contents of `train_model.py`.
+4.  Download `workload_lstm_model.keras` and `scaler.pkl` from the output.
 
 ## Repository Hygiene
-A comprehensive `.gitignore` is implemented to ensure repository integrity. The following artifacts are excluded from version control:
-*   **Large Data**: All `.csv`, `.gz`, and raw data directories.
-*   **Model Weights**: Saved model files (`.h5`, `.keras`, `.pth`).
-*   **Virtual Environments**: Local environment directories (`.venv`, `env`).
-*   **Secrets**: Environment variable files (`.env`).
-
-## Execution Flow
-1.  Place raw `instance_usage-*.json.gz` files in the project root.
-2.  Run `python data_preprocessing.py` to generate the normalized CSV.
-3.  Run `python lstm_preprocessing.py` to prepare tensors for model training.
+A `.gitignore` is configured to exclude data artifacts, model checkpoints, virtual environments, and credential files from version control.

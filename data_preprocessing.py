@@ -3,7 +3,7 @@ import pandas as pd
 import gzip
 import os
 
-def process_cluster_data(filepath, max_rows=50000):
+def process_cluster_data(filepath, max_rows=500000):
     """Parse compressed Google Cluster JSON traces into a DataFrame."""
     extracted = []
     
@@ -16,8 +16,8 @@ def process_cluster_data(filepath, max_rows=50000):
                 extracted.append({
                     "time": int(row.get("start_time", 0)),
                     "machine_id": row.get("machine_id", "unknown"),
-                    "cpu": float(usage.get("cpus", 0.0)),
-                    "mem": float(usage.get("memory", 0.0))
+                    "cpu_usage": float(usage.get("cpus", 0.0)),
+                    "memory_usage": float(usage.get("memory", 0.0))
                 })
             except (json.JSONDecodeError, ValueError):
                 continue
