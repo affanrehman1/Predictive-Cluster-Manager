@@ -33,3 +33,11 @@ logs/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Allow specific production files for inference/sharing
+!workload_lstm_model.keras
+!input_scaler.pkl
+!target_scaler.pkl
+!prediction_calibration.pkl
+!prediction_postprocess_config.pkl
+!spike_guard_config.pkl

@@ -19,28 +19,30 @@ This project utilizes the Google Cluster-Usage Traces v3 (2019), which tracks re
 ## Pipeline Architecture
 
 ### 1. Data Ingestion (`data_preprocessing.py`)
-Parses compressed GZIP JSON traces via stream processing. Extracts CPU and memory telemetry and exports a chronologically sorted CSV.
+Parses compressed GZIP JSON traces via stream processing. Extracts CPU and memory telemetry, aggregates multiple instance rows into one machine workload row per timestamp, and exports a chronologically sorted CSV.
 
-### 2. Feature Engineering (`lstm_preprocessing.py`)
-Applies Min-Max normalization, generates sliding-window temporal sequences of shape `(N, T, F)`, and performs chronological train-test partitioning.
+### 2. Feature Engineering
+Builds spike-aware temporal features such as short/long rolling maxima, rolling volatility, deltas, absolute deltas, EWM momentum gaps, and CPU spike pressure. Scalers are fitted on the training period only, then sliding-window temporal sequences of shape `(N, T, F)` are generated with chronological train-validation-test partitioning.
 
 ### 3. Model Training (`train_model.py`)
-Builds and trains a stacked LSTM architecture under `tf.distribute.MirroredStrategy` for multi-GPU acceleration. Includes EarlyStopping and ModelCheckpoint callbacks. Exports the trained model as `.keras` and the fitted scaler as `.pkl`.
+Builds and trains a Conv1D + stacked LSTM architecture under `tf.distribute.MirroredStrategy` for multi-GPU acceleration. The model predicts both next values and next deltas, then validation-selects the best direct-vs-delta blend. It also validation-selects how much to trust the neural forecast versus a persistence baseline, which helps prevent stable memory usage from being shifted upward. CPU and memory use output-specific robust loss weights so CPU spike learning does not push the memory baseline upward. Validation-set calibration and spike guarding are applied only when they improve validation score. Includes EarlyStopping, ReduceLROnPlateau, ModelCheckpoint, L2 regularization, and spatial dropout. Exports the trained model, fitted scalers, prediction calibration, spike guard configuration, and selected postprocessing configuration.
 
 ## Model Architecture
 ```
-Input(10, 1) -> LSTM(64) -> Dropout(0.2) -> LSTM(32) -> Dropout(0.2) -> Dense(1)
+Input(60, F) -> LayerNorm -> Causal Conv1D(64) -> Causal Conv1D(64) -> LSTM(192) -> LSTM(96) -> Dense(96) -> Dense(4)
 ```
 *   **Optimizer:** Adam (adaptive learning rate)
-*   **Loss:** Mean Squared Error
-*   **Regularization:** Dropout (20%) + EarlyStopping (patience=5)
+*   **Loss:** output-specific peak-weighted Huber loss over CPU, memory, CPU delta, and memory delta
+*   **Spike Handling:** timestamp aggregation, delta targets, validation-selected per-output blending, validation-selected persistence ensemble, nonnegative output clipping, optional validation-set bias calibration, and optional recent-window spike guarding
+*   **Overfit Control:** L2 regularization, spatial dropout, EarlyStopping, ReduceLROnPlateau, and validation-selected postprocessing
+*   **Metrics:** CPU usage accuracy, memory usage accuracy, MAE, RMSE, and CPU spike precision/recall/F1
+*   **Regularization:** Dropout + EarlyStopping + learning-rate reduction
 
 ## Execution
 
 ### Local Preprocessing
 ```bash
 python data_preprocessing.py
-python lstm_preprocessing.py
 ```
 
 ### Kaggle Training
