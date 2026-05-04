@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Data (Aggressive blocking)
+*.csv
+*.json
+*.gz
+*.gstmp
+*.gz_*
+instance_usage-*/
+
+# Models and Logs
+*.h5
+*.keras
+*.pth
+*.pkl
+logs/
+*.log
+
+# Secrets
+.env
+.secrets
+
+# IDE/System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Allow specific production files for inference/sharing
+!workload_lstm_model.keras
+!input_scaler.pkl
+!target_scaler.pkl
+!prediction_calibration.pkl
+!prediction_postprocess_config.pkl
+!spike_guard_config.pkl
+
+# Allow Docker and config files
+!Dockerfile
+!docker-compose.yml
+!requirements.txt
