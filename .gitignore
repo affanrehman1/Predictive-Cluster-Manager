@@ -41,3 +41,8 @@ Thumbs.db
 !prediction_calibration.pkl
 !prediction_postprocess_config.pkl
 !spike_guard_config.pkl
+
+# Allow Docker and config files
+!Dockerfile
+!docker-compose.yml
+!requirements.txt
