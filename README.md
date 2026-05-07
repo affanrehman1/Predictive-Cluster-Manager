@@ -171,6 +171,33 @@ python astar_scaler.py
 python docker_manager.py
 ```
 
+### Run Automated Tests
+
+The project includes a pytest suite under `tests/`. These tests are designed to
+run quickly and safely without the full Google trace dataset, the trained
+TensorFlow model, or a real Docker daemon.
+
+```bash
+# 1. Install application dependencies
+pip install -r requirements.txt
+
+# 2. Install test-only dependencies
+pip install -r requirements-dev.txt
+
+# 3. Run all automated tests
+pytest
+```
+
+Test files:
+
+| File | What it checks |
+|------|----------------|
+| `tests/test_astar_scaler.py` | A* scale-up, scale-down, stable cluster, max-node clamping, and workload-to-node conversion |
+| `tests/test_data_preprocessing.py` | Timestamp aggregation, missing-column validation, and spike/rolling feature generation |
+| `tests/test_docker_manager.py` | Docker manager behavior in simulated mode, including boot, shutdown, missing nodes, and cleanup |
+| `tests/test_api.py` | FastAPI `/health`, `/status`, `/predict-and-scale`, `/simulate-stress`, and `/cleanup` responses using a fake in-memory Docker manager |
+| `tests/conftest.py` | Shared fixtures and the fake Docker manager used to isolate tests from real infrastructure |
+
 ---
 
 ## API Documentation
